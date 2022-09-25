@@ -13,66 +13,93 @@ const {
 
 const DEMO_FROM_SECRET_KEY = new Uint8Array(
     [
-        160,  20, 189, 212, 129, 188, 171, 124,  20, 179,  80,
-         27, 166,  17, 179, 198, 234,  36, 113,  87,   0,  46,
-        186, 250, 152, 137, 244,  15,  86, 127,  77,  97, 170,
-         44,  57, 126, 115, 253,  11,  60,  90,  36, 135, 177,
-        185, 231,  46, 155,  62, 164, 128, 225, 101,  79,  69,
-        101, 154,  24,  58, 214, 219, 238, 149,  86
-      ]            
+        168, 82, 99, 8, 152, 95, 125, 4, 128, 125, 141,
+        249, 251, 199, 155, 220, 40, 70, 93, 188, 171, 255,
+        68, 61, 74, 225, 95, 173, 222, 200, 172, 101, 128,
+        192, 51, 133, 95, 70, 89, 232, 197, 186, 178, 187,
+        22, 30, 56, 171, 164, 191, 111, 230, 55, 100, 210,
+        100, 218, 128, 117, 64, 209, 157, 236, 217
+    ]
 );
 
-const transferSol = async() => {
-    const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
 
-    // Get Keypair from Secret Key
-    var from = Keypair.fromSecretKey(DEMO_FROM_SECRET_KEY);
+const getWalletBalance = async (address) => {
+    try {
+        const walletBalance = await connection.getBalance(
+            new PublicKey(address)
+        );
+        console.log(`Wallet ${address} balance: ${parseInt(walletBalance) / LAMPORTS_PER_SOL} SOL`);
+        return walletBalance;
+    } catch (err) {
+        console.log(err);
+    }
+};
 
-    // Other things to try: 
-    // 1) Form array from userSecretKey
-    // const from = Keypair.fromSecretKey(Uint8Array.from(userSecretKey));
-    // 2) Make a new Keypair (starts with 0 SOL)
-    // const from = Keypair.generate();
+const airDropSol = async (address) => {
+    try {
+        // Aidrop 2 SOL to Sender wallet
+        console.log("Airdopping some SOL to Sender wallet!");
+        const fromAirDropSignature = await connection.requestAirdrop(
+            new PublicKey(address),
+            2 * LAMPORTS_PER_SOL
+        );
 
-    // Generate another Keypair (account we'll be sending to)
-    const to = Keypair.generate();
+        // Latest blockhash (unique identifer of the block) of the cluster
+        let latestBlockHash = await connection.getLatestBlockhash();
 
-    // Aidrop 2 SOL to Sender wallet
-    console.log("Airdopping some SOL to Sender wallet!");
-    const fromAirDropSignature = await connection.requestAirdrop(
-        new PublicKey(from.publicKey),
-        2 * LAMPORTS_PER_SOL
-    );
+        // Confirm transaction using the last valid block height (refers to its time)
+        // to check for transaction expiration
+        await connection.confirmTransaction({
+            blockhash: latestBlockHash.blockhash,
+            lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+            signature: fromAirDropSignature
+        });
 
-    // Latest blockhash (unique identifer of the block) of the cluster
-    let latestBlockHash = await connection.getLatestBlockhash();
+        console.log("Airdrop completed for the Sender account");
+    } catch (err) {
+        console.log(err);
+    }
+};
 
-    // Confirm transaction using the last valid block height (refers to its time)
-    // to check for transaction expiration
-    await connection.confirmTransaction({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: fromAirDropSignature
-    });
+const transferSol = async (senderKp, receiver, walletBalance) => {
+    try {
+        // Send money from "from" wallet and into "to" wallet
+        var transaction = new Transaction().add(
+            SystemProgram.transfer({
+                fromPubkey: senderKp.publicKey,
+                toPubkey: receiver,
+                lamports: walletBalance / 2
+            })
+        );
 
-    console.log("Airdrop completed for the Sender account");
-
-    // Send money from "from" wallet and into "to" wallet
-    var transaction = new Transaction().add(
-        SystemProgram.transfer({
-            fromPubkey: from.publicKey,
-            toPubkey: to.publicKey,
-            lamports: LAMPORTS_PER_SOL / 100
-        })
-    );
-
-    // Sign transaction
-    var signature = await sendAndConfirmTransaction(
-        connection,
-        transaction,
-        [from]
-    );
-    console.log('Signature is ', signature);
+        // Sign transaction
+        var signature = await sendAndConfirmTransaction(
+            connection,
+            transaction,
+            [senderKp]
+        );
+        console.log('Signature is ', signature);
+    } catch (err) {
+        console.log(err);
+    }
 }
 
-transferSol();
+const mainFunction = async () => {
+    // Get Keypair from Secret Key
+    var fromKp = Keypair.fromSecretKey(DEMO_FROM_SECRET_KEY);
+    const from = fromKp.publicKey;
+
+    // Generate another Keypair (account we'll be sending to)
+    const to = Keypair.generate().publicKey;
+
+    await getWalletBalance(from);
+    await getWalletBalance(to);
+    await airDropSol(from);
+    const walletBalance = await getWalletBalance(from);
+    await transferSol(fromKp, to, walletBalance);
+    await getWalletBalance(from);
+    await getWalletBalance(to);
+}
+
+mainFunction();
